@@ -17,9 +17,28 @@ data class SearchResult<out T>(val aggs: Map<String, AggResult> = emptyMap(),
     companion object {
 
         fun <T> combineSearchResults(results: List<SearchResult<T>>, rowToItemFn: ((List<List<Any?>>?) -> List<T>)? = null): SearchResult<T> {
+            if (results.isEmpty()) {
+                return SearchResult(totalItems = 0)
+            }
+            if (results.size == 1) {
+                return results.first()
+            }
 
+            // TODO: Revisit with dual read + write
             // finding the total items count is the same problem as finding the
             // count for a specific query. this "totalItems" number could be over the limit for elasticsearch
+
+            val fields = results.flatMapTo(mutableListOf()) { result ->
+                result.fields ?: emptyList()
+            }.distinct()
+
+            val aggs = results.flatMapTo(mutableListOf()) { result ->
+                result.aggs.entries.map { (k, v) -> k to v }
+            }.distinct().toMap()
+
+            val headers = results.flatMapTo(mutableListOf()) { result ->
+                result.headers.entries.map { (k, v) -> k to v }
+            }.distinct().toMap()
 
             val useItems = results.any { result -> result.items != null }
 
@@ -27,13 +46,24 @@ data class SearchResult<out T>(val aggs: Map<String, AggResult> = emptyMap(),
                 val items = results.flatMapTo(mutableListOf()) {
                     result -> result.items ?: rowToItemFn?.invoke(result.rows) ?: emptyList()
                 }.distinct()
-                return SearchResult(totalItems = items.size.toLong(), items = items)
+
+                return SearchResult(
+                    totalItems = items.size.toLong(),
+                    items = items,
+                    fields = fields,
+                    aggs = aggs,
+                    headers = headers)
             }
 
             val rows = results.flatMap { result ->
                 result.rows ?: emptyList()
             }.distinct()
-            return SearchResult(totalItems = rows.size.toLong(), rows = rows)
+            return SearchResult(
+                totalItems = rows.size.toLong(),
+                rows = rows,
+                fields = fields,
+                aggs = aggs,
+                headers = headers)
 
         }
 
